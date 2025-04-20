@@ -1,6 +1,7 @@
 ﻿using UnityEngine;
 using UnityEngine.XR;
 using System.Collections;
+using TMPro;
 
 public class WeaponSummoner : MonoBehaviour
 {
@@ -19,6 +20,12 @@ public class WeaponSummoner : MonoBehaviour
     [Header("Tridente")]
     public float throwForceMultiplier = 1.5f;
 
+    [Header("Munición")]
+    public int maxAmmo = 5;
+    private int currentAmmo;
+    private bool isReloading = false;
+    public TextMeshProUGUI ammoText;
+
     private GameObject currentShield;
     private GameObject currentTrident;
     private GameObject lastThrownTrident;
@@ -26,10 +33,21 @@ public class WeaponSummoner : MonoBehaviour
     private Vector3 lastTridentPosition;
     private Vector3 currentTridentVelocity;
 
+    private PlayerHealth playerHealth;
+
+    void Start()
+    {
+        currentAmmo = maxAmmo;
+        UpdateAmmoUI();
+
+        playerHealth = FindObjectOfType<PlayerHealth>();
+    }
+
     void Update()
     {
         HandleShield();
         HandleTrident();
+        HandleReload();
     }
 
     void FixedUpdate()
@@ -46,6 +64,9 @@ public class WeaponSummoner : MonoBehaviour
 
     void HandleShield()
     {
+        if (playerHealth != null && playerHealth.isShocked)
+            return;
+
         InputDevice leftDevice = InputDevices.GetDeviceAtXRNode(XRNode.LeftHand);
 
         if (leftDevice.TryGetFeatureValue(CommonUsages.triggerButton, out bool isTriggerPressed))
@@ -72,12 +93,18 @@ public class WeaponSummoner : MonoBehaviour
 
     void HandleTrident()
     {
+        if (playerHealth != null && playerHealth.isShocked)
+            return;
+
         InputDevice rightDevice = InputDevices.GetDeviceAtXRNode(XRNode.RightHand);
 
         if (rightDevice.TryGetFeatureValue(CommonUsages.triggerButton, out bool isTriggerPressed))
         {
             if (isTriggerPressed)
             {
+                if (currentAmmo <= 0 || isReloading)
+                    return;
+
                 if (currentTrident == null && tridentPrefab != null && tridentAnchor != null)
                 {
                     currentTrident = Instantiate(tridentPrefab, tridentAnchor);
@@ -91,8 +118,10 @@ public class WeaponSummoner : MonoBehaviour
             }
             else
             {
-                if (currentTrident != null)
+                if (currentTrident != null && !isReloading)
                 {
+                    if (currentAmmo <= 0) return;
+
                     Vector3 launchPosition = tridentAnchor.position;
                     Quaternion launchRotation = tridentAnchor.rotation;
                     Vector3 launchVelocity = currentTridentVelocity;
@@ -100,21 +129,18 @@ public class WeaponSummoner : MonoBehaviour
                     Destroy(currentTrident);
                     currentTrident = null;
 
+                    currentAmmo--;
+                    UpdateAmmoUI();
+
                     if (thrownTridentPrefab != null)
                     {
                         GameObject thrown = Instantiate(thrownTridentPrefab, launchPosition, launchRotation);
                         Rigidbody rb = thrown.GetComponent<Rigidbody>();
-                        Transform forwardPoint = thrown.transform.Find("ForwardDirection");
-
                         if (rb != null)
                         {
                             if (headBone != null)
                             {
                                 rb.linearVelocity = headBone.forward * launchVelocity.magnitude * throwForceMultiplier;
-                            }
-                            else if (forwardPoint != null)
-                            {
-                                rb.linearVelocity = forwardPoint.forward * launchVelocity.magnitude * throwForceMultiplier;
                             }
                             else
                             {
@@ -131,7 +157,40 @@ public class WeaponSummoner : MonoBehaviour
         }
     }
 
-    // 👇 Script interno: daño + clavado con espera al knockback
+    void HandleReload()
+    {
+        if (playerHealth != null && playerHealth.isShocked)
+            return;
+
+        InputDevice rightDevice = InputDevices.GetDeviceAtXRNode(XRNode.RightHand);
+
+        if (!isReloading && rightDevice.TryGetFeatureValue(CommonUsages.gripButton, out bool isGripPressed) && isGripPressed)
+        {
+            StartCoroutine(ReloadTridents());
+        }
+    }
+
+    IEnumerator ReloadTridents()
+    {
+        isReloading = true;
+        if (ammoText != null)
+            ammoText.text = "Recargando...";
+
+        yield return new WaitForSeconds(2f);
+
+        currentAmmo = maxAmmo;
+        isReloading = false;
+        UpdateAmmoUI();
+    }
+
+    void UpdateAmmoUI()
+    {
+        if (ammoText != null)
+        {
+            ammoText.text = $"Tridentes: {currentAmmo} / {maxAmmo}";
+        }
+    }
+
     public class TridentDamageHandler : MonoBehaviour
     {
         public float damage = 10f;
@@ -147,46 +206,33 @@ public class WeaponSummoner : MonoBehaviour
         {
             if (hasHit) return;
 
-            EnemyAction enemy = collision.gameObject.GetComponent<EnemyAction>();
-            if (enemy != null)
+            if (collision.gameObject.CompareTag("Shield"))
             {
+                Destroy(gameObject);
+            }
+            else if (collision.gameObject.CompareTag("Enemy"))
+            {
+                EnemyAction enemy = collision.gameObject.GetComponent<EnemyAction>();
+                if (enemy != null)
+                {
+                    enemy.TakeDamage(damage, transform.position);
+                }
+
+                Rigidbody rb = GetComponent<Rigidbody>();
+                if (rb != null)
+                {
+                    rb.isKinematic = true;
+                    rb.linearVelocity = Vector3.zero;
+                    rb.angularVelocity = Vector3.zero;
+                }
+
+                transform.SetParent(collision.transform);
                 hasHit = true;
-                ContactPoint contact = collision.contacts[0]; // Primer punto de contacto
-                StartCoroutine(StickAfterKnockback(enemy, contact));
             }
-        }
-
-        IEnumerator StickAfterKnockback(EnemyAction enemy, ContactPoint contact)
-        {
-            enemy.TakeDamage(damage, transform.position);
-
-            yield return null; // esperar a que el enemigo se desplace por el knockback
-
-            // Desactivar física
-            Rigidbody rb = GetComponent<Rigidbody>();
-            if (rb != null)
+            else
             {
-                rb.isKinematic = true;
-                rb.linearVelocity = Vector3.zero;
-                rb.angularVelocity = Vector3.zero;
-                rb.detectCollisions = false;
+                Destroy(gameObject);
             }
-
-            // 1. Colocar el tridente en el punto de impacto
-            transform.position = contact.point;
-
-            // 2. Orientarlo perpendicular a la superficie (como una lanza clavada)
-            transform.rotation = Quaternion.LookRotation(-contact.normal);
-
-            // 3. Hacerlo hijo del enemigo para que se destruya junto a él
-            transform.SetParent(enemy.transform);
-
-            // 4. Desactivar colisión
-            Collider col = GetComponent<Collider>();
-            if (col != null) col.enabled = false;
-
-            // NO lo destruimos manualmente: ahora el enemigo lo arrastra consigo y se destruye junto con él
         }
-
     }
 }

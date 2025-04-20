@@ -1,52 +1,52 @@
+using TMPro;
 using UnityEngine;
 
 public class EnemyAction : MonoBehaviour
 {
-    [Header("Salud del enemigo")]
-    public float maxHealth = 50f;
+    public float maxHealth = 100f;
     private float currentHealth;
 
-    [Header("Reacción al impacto")]
-    public float knockbackForce = 2f;       // Para Rigidbody
-    public float fallbackDistance = 0.3f;   // Si no hay Rigidbody
+    public float knockbackForce = 5f;
+    private Rigidbody rb;
+
+    [Header("HUD de Vida")]
+    public TextMeshProUGUI healthText;  // <-- Asignar desde el inspector
 
     void Start()
     {
         currentHealth = maxHealth;
+        rb = GetComponent<Rigidbody>();
+        UpdateHealthText();
     }
 
     public void TakeDamage(float amount, Vector3 attackerPosition)
     {
         currentHealth -= amount;
 
+        if (rb != null)
+        {
+            Vector3 pushDirection = (transform.position - attackerPosition).normalized;
+            rb.AddForce(pushDirection * knockbackForce, ForceMode.Impulse);
+        }
+
+        UpdateHealthText();
+
         if (currentHealth <= 0f)
         {
             Die();
         }
-        else
-        {
-            ApplyKnockback(attackerPosition);
-        }
     }
 
-    void ApplyKnockback(Vector3 attackerPosition)
+    void UpdateHealthText()
     {
-        Vector3 direction = (transform.position - attackerPosition).normalized;
-
-        Rigidbody rb = GetComponent<Rigidbody>();
-        if (rb != null)
+        if (healthText != null)
         {
-            rb.AddForce(direction * knockbackForce, ForceMode.Impulse);
-        }
-        else
-        {
-            transform.position += direction * fallbackDistance;
+            healthText.text = Mathf.RoundToInt(currentHealth).ToString();
         }
     }
 
     void Die()
     {
-        Destroy(gameObject); // eliminará también todos los tridentes hijos
+        Destroy(gameObject);
     }
-
 }

@@ -4,13 +4,26 @@ public class EnemyShooter : MonoBehaviour
 {
     public GameObject projectilePrefab;
     public Transform shootPoint;
-    public Transform playerHead; // Asigna el headBone del jugador desde Inspector
+    public Transform playerHead; // Se asigna automáticamente si está vacío
 
     public float fireInterval = 3f;
     public float projectileSpeed = 10f;
     public float projectileDamage = 10f;
 
     private float timer = 0f;
+
+    void Start()
+    {
+        // Buscar el objeto con tag "Player", que en tu caso es el hueso "Head"
+        if (playerHead == null)
+        {
+            GameObject headObject = GameObject.FindWithTag("Player");
+            if (headObject != null)
+            {
+                playerHead = headObject.transform;
+            }
+        }
+    }
 
     void Update()
     {
@@ -38,7 +51,7 @@ public class EnemyShooter : MonoBehaviour
             rb.linearVelocity = direction * projectileSpeed;
         }
 
-        // Pasar el da�o (pensado para proyectiles personalizables)
+        // Pasar el daño si es un proyectil con lógica
         EnemyProjectile ep = projectile.GetComponent<EnemyProjectile>();
         if (ep != null)
         {
